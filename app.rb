@@ -6,17 +6,20 @@ require "bundler/inline"
 gemfile(true) do
   source "https://rubygems.org"
 
-  gem "rackup"
-  gem "puma"
-  gem "rails", "~> 7.1"
-  gem "dotenv-rails"
-  gem "sqlite3"
+  gem "dotenv", "~> 3.1"
+  gem "rackup", "~> 2.1"
+  gem "puma", "~> 6.4"
+  gem "rails", "~> 7.2"
+  gem "sqlite3", "~> 2.0"
 
   group :development do
     gem "rubocop-performance"
     gem "rubocop-rails"
   end
 end
+
+require "dotenv"
+Dotenv.load
 
 require "puma/configuration"
 require "rails"
