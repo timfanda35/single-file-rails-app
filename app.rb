@@ -10,7 +10,9 @@ gemfile(true) do
   gem "rackup", "~> 2.1"
   gem "puma", "~> 6.4"
   gem "rails", "~> 7.2"
-  gem "sqlite3", "~> 2.0"
+
+  # Bundle will auto require, we have to require the active_record first, then litestack can register the adapter
+  gem "litestack", "~> 0.4.4", require: false
 
   group :development do
     gem "rubocop-performance"
@@ -18,17 +20,96 @@ gemfile(true) do
   end
 end
 
-require "dotenv"
 Dotenv.load
 
 require "puma/configuration"
-require "rails"
+require "active_record/railtie"
 require "action_controller/railtie"
+require "litestack"
+
+# Database
+# database = "db/#{ENV.fetch("RAILS_ENV", "development")}.sqlite3"
+database = "db/#{ENV.fetch("RAILS_ENV", "development")}/#{ENV.fetch("RAILS_ENV", "development")}.sqlite3"
+
+ENV["DATABASE_URL"] = "litedb:#{database}"
+
+ActiveRecord::Base.establish_connection
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+ActiveRecord::Schema.define do
+  create_table :posts, if_not_exists: true do |t|
+    t.string :title
+    t.text :content
+
+    t.timestamps
+  end
+end
+
+# Models
+class ApplicationRecord < ActiveRecord::Base
+  primary_abstract_class
+end
+
+class Post < ApplicationRecord
+  validates :title, :content, presence: true
+end
 
 # Controllers
 class WelcomeController < ActionController::Base
   def index
     render inline: "Hello World!"
+  end
+end
+
+class PostsController < ActionController::Base
+  before_action :set_post, only: %w[show update destroy]
+
+  def index
+    @posts = Post.all
+    render json: { records: @posts, total_results: @posts.size }
+  end
+
+  def create
+    @post = Post.new(create_params)
+
+    if @post.save
+      render json: { record: @post }
+    else
+      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+    end
+  end
+
+  def update
+    if @post.update(update_params)
+      render json: { record: @post }
+    else
+      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+    end
+  end
+
+  def show
+    render json: { record: @post }
+  end
+
+  def destroy
+    if @post.destroy
+      render json: { record: @post }
+    else
+      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+    end
+  end
+
+  private
+
+  def set_post
+    @post = Post.find(params[:id])
+  end
+
+  def create_params
+    params.require(:post).permit(:title, :content)
+  end
+
+  def update_params
+    params.require(:post).permit(:title, :content)
   end
 end
 
@@ -52,6 +133,7 @@ class App < Rails::Application
   # Routes
   routes.append do
     root to: "welcome#index"
+    resources :posts
   end
 end
 

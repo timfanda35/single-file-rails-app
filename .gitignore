@@ -10,3 +10,6 @@ tmp
 
 # Temporary files
 .pid
+
+# Database sqlite3
+*.sqlite3*
