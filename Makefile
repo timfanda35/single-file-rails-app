@@ -1,2 +1,2 @@
 run:
-	rackup app.ru
+	ruby app.rb
