@@ -1,0 +1,2 @@
+run:
+	rackup app.ru

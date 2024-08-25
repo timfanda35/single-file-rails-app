@@ -1,0 +1,9 @@
+# JetBrains
+.idea
+
+# Directory
+log
+tmp
+
+# Environment Variable
+.env
