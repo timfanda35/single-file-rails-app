@@ -34,13 +34,17 @@ end
 # https://guides.rubyonrails.org/configuring.html
 # https://api.rubyonrails.org/v7.2.1/classes/Rails/Application.html
 class App < Rails::Application
-  config.root                        = __dir__
-  config.consider_all_requests_local = true
-  config.eager_load                  = false
+  config.root = __dir__
 
-  config.logger = ActiveSupport::Logger.new(STDOUT)
-                                       .tap { |logger| logger.formatter = ::Logger::Formatter.new }
-                                       .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
+  config.enable_reloading                  = false
+  config.eager_load                        = true
+  config.consider_all_requests_local       = false
+  config.action_controller.perform_caching = true
+
+  config.logger   = ActiveSupport::Logger.new(STDOUT)
+                                         .tap { |logger| logger.formatter = ::Logger::Formatter.new }
+                                         .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
+  config.log_tags = [ :request_id ]
 
   # Routes
   routes.append do
