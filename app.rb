@@ -6,26 +6,54 @@ require "bundler/inline"
 gemfile(true) do
   source "https://rubygems.org"
 
-  gem "dotenv", "~> 3.1"
-  gem "rackup", "~> 2.1"
-  gem "puma", "~> 6.4"
-  gem "rails", "~> 7.2"
-
-  # Bundle will auto require, we have to require the active_record first, then litestack can register the adapter
+  # Control the require sequence later
+  gem "dotenv", "~> 3.1", require: false
+  gem "puma", "~> 6.4", require: false
+  gem "rails", "~> 7.2", require: false
   gem "litestack", "~> 0.4.4", require: false
 
   group :development do
-    gem "rubocop-performance"
-    gem "rubocop-rails"
+    gem "rubocop-performance", require: false
+    gem "rubocop-rails", require: false
   end
 end
 
+# We use the Dotenv.load not Dotenv::Rails.load to load .env
+require "dotenv"
 Dotenv.load
 
-require "puma/configuration"
+# Require Rails first, and other later
+require "rails"
 require "active_record/railtie"
 require "action_controller/railtie"
+require "puma"
 require "litestack"
+
+# Application Configurations
+#
+# https://guides.rubyonrails.org/configuring.html
+# https://api.rubyonrails.org/v7.2.1/classes/Rails/Application.html
+class App < Rails::Application
+  config.root = __dir__
+
+  config.enable_reloading                  = false
+  config.eager_load                        = true
+  config.consider_all_requests_local       = false
+  config.action_controller.perform_caching = true
+
+  config.logger   = ActiveSupport::Logger.new(STDOUT)
+                                         .tap { |logger| logger.formatter = ::Logger::Formatter.new }
+                                         .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
+  config.log_tags = [ :request_id ]
+
+  # Routes
+  routes.append do
+    root to: "welcome#index"
+    resources :posts
+  end
+end
+
+App.initialize!
 
 # Database
 # database = "db/#{ENV.fetch("RAILS_ENV", "development")}.sqlite3"
@@ -113,34 +141,9 @@ class PostsController < ActionController::Base
   end
 end
 
-# Application Configurations
-#
-# https://guides.rubyonrails.org/configuring.html
-# https://api.rubyonrails.org/v7.2.1/classes/Rails/Application.html
-class App < Rails::Application
-  config.root = __dir__
-
-  config.enable_reloading                  = false
-  config.eager_load                        = true
-  config.consider_all_requests_local       = false
-  config.action_controller.perform_caching = true
-
-  config.logger   = ActiveSupport::Logger.new(STDOUT)
-                                         .tap { |logger| logger.formatter = ::Logger::Formatter.new }
-                                         .then { |logger| ActiveSupport::TaggedLogging.new(logger) }
-  config.log_tags = [ :request_id ]
-
-  # Routes
-  routes.append do
-    root to: "welcome#index"
-    resources :posts
-  end
-end
-
-App.initialize!
-
 # Puma Server
 # https://github.com/puma/puma/blob/master/lib/puma/launcher.rb
+require "puma/configuration"
 puma_config = Puma::Configuration.new do |config|
   config.app App
 
