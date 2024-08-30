@@ -105,6 +105,13 @@ class ApplicationLayout < ApplicationComponent
         meta name: "viewport", content: "width=device-width,initial-scale=1"
         csp_meta_tag
         csrf_meta_tags
+
+        # https://turbo.hotwired.dev/handbook/installing#in-compiled-form
+        # use unsafe_raw instead of plain to avoid escape chat
+        # specific the turbo version to 7, cause there error when access 8
+        script(type: "module") {
+          unsafe_raw 'import hotwiredTurbo from "https://cdn.skypack.dev/@hotwired/turbo@7";'
+        }
       end
 
       body do
@@ -142,6 +149,14 @@ class PostsFormView < ApplicationView
   def view_template
     h1 { @post.new_record? ? plain("New Post") : plain("Edit Post ##{@post.id}") }
 
+    if @post.errors.any?
+      div do
+        ul do
+          @post.errors.full_messages.each { li { plain _1 } }
+        end
+      end
+    end
+
     div do
       form_for @post do |f|
         div {
@@ -171,9 +186,25 @@ class PostsShowView < ApplicationView
   def view_template
     h1 { @post.title }
     div { plain @post.content }
+
+    if @post.errors.any?
+      div do
+        ul do
+          @post.errors.full_messages.each { li { plain _1 } }
+        end
+      end
+    end
+
     div do
       link_to "back", posts_path
+
       link_to "edit", edit_post_path(@post)
+
+      link_to "delete",
+              post_path(@post),
+              data: {
+                turbo_method:  :delete,
+                turbo_confirm: "Do you want to delete #{@post.title}?" }
     end
   end
 end
@@ -207,7 +238,7 @@ class PostsController < ApplicationController
     if @post.save
       redirect_to posts_path
     else
-      render PostsFormView.new(post: @post)
+      render PostsFormView.new(post: @post), status: :unprocessable_entity
     end
   end
 
@@ -219,7 +250,7 @@ class PostsController < ApplicationController
     if @post.update(update_params)
       redirect_to post_path(@post)
     else
-      render PostsFormView.new(post: @post)
+      render PostsFormView.new(post: @post), status: :unprocessable_entity
     end
   end
 
@@ -229,9 +260,9 @@ class PostsController < ApplicationController
 
   def destroy
     if @post.destroy
-      redirect_to posts_path
+      redirect_to posts_path, status: :see_other
     else
-      redirect_to post_path(@post)
+      redirect_to post_path(@post), status: :unprocessable_entity
     end
   end
 
