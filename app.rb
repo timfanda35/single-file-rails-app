@@ -11,6 +11,7 @@ gemfile(true) do
   gem "puma", "~> 6.4", require: false
   gem "rails", "~> 7.2", require: false
   gem "litestack", "~> 0.4.4", require: false
+  gem "phlex-rails", "~> 1.2", require: false
 
   group :development do
     gem "rubocop-performance", require: false
@@ -28,6 +29,7 @@ require "active_record/railtie"
 require "action_controller/railtie"
 require "puma"
 require "litestack"
+require "phlex-rails"
 
 # Application Configurations
 #
@@ -48,7 +50,7 @@ class App < Rails::Application
 
   # Routes
   routes.append do
-    root to: "welcome#index"
+    root to: "posts#index"
     resources :posts
   end
 end
@@ -81,48 +83,155 @@ class Post < ApplicationRecord
   validates :title, :content, presence: true
 end
 
-# Controllers
-class WelcomeController < ActionController::Base
-  def index
-    render inline: "Hello World!"
+# Views
+
+# Phlex Base Configuration start
+class ApplicationComponent < Phlex::HTML
+  include Phlex::Rails::Helpers::Routes
+  include Phlex::Rails::Helpers::LinkTo
+end
+
+class ApplicationView < ApplicationComponent; end
+
+class ApplicationLayout < ApplicationComponent
+  include Phlex::Rails::Layout
+
+  def view_template(&block)
+    doctype
+
+    html do
+      head do
+        title { "Single File Rails App" }
+        meta name: "viewport", content: "width=device-width,initial-scale=1"
+        csp_meta_tag
+        csrf_meta_tags
+      end
+
+      body do
+        main(&block)
+      end
+    end
   end
 end
 
-class PostsController < ActionController::Base
-  before_action :set_post, only: %w[show update destroy]
+class PostsIndexView < ApplicationView
+  def initialize(title:, posts:)
+    @title = title
+    @posts = posts
+  end
+
+  def view_template
+    h1 { @title }
+    div { link_to "new", new_post_path }
+    div do
+      @posts.each do |post|
+        li { link_to post.title, post_path(post) }
+      end
+    end
+  end
+end
+
+class PostsFormView < ApplicationView
+  include Phlex::Rails::Helpers::FormFor
+
+  # @param [ActiveRecord] post
+  def initialize(post:)
+    @post = post
+  end
+
+  def view_template
+    h1 { @post.new_record? ? plain("New Post") : plain("Edit Post ##{@post.id}") }
+
+    div do
+      form_for @post do |f|
+        div {
+          f.label :title
+          f.text_field :title
+        }
+
+        div {
+          f.label :content
+          f.text_area :content
+        }
+
+        div {
+          link_to "cancel", posts_path
+          f.submit
+        }
+      end
+    end
+  end
+end
+
+class PostsShowView < ApplicationView
+  def initialize(post:)
+    @post = post
+  end
+
+  def view_template
+    h1 { @post.title }
+    div { plain @post.content }
+    div do
+      link_to "back", posts_path
+      link_to "edit", edit_post_path(@post)
+    end
+  end
+end
+
+# Controllers
+class ApplicationController < ActionController::Base
+  layout -> { ApplicationLayout }
+end
+
+class WelcomeController < ApplicationController
+  def index
+    render WelcomeIndexView.new(title: "Hello World!")
+  end
+end
+
+class PostsController < ApplicationController
+  before_action :set_post, only: %w[edit update show destroy]
 
   def index
     @posts = Post.all
-    render json: { records: @posts, total_results: @posts.size }
+    render PostsIndexView.new(title: "Posts", posts: @posts.load_async)
+  end
+
+  def new
+    render PostsFormView.new(post: Post.new)
   end
 
   def create
     @post = Post.new(create_params)
 
     if @post.save
-      render json: { record: @post }
+      redirect_to posts_path
     else
-      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+      render PostsFormView.new(post: @post)
     end
+  end
+
+  def edit
+    render PostsFormView.new(post: @post)
   end
 
   def update
     if @post.update(update_params)
-      render json: { record: @post }
+      redirect_to post_path(@post)
     else
-      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+      render PostsFormView.new(post: @post)
     end
   end
 
   def show
-    render json: { record: @post }
+    render PostsShowView.new(post: @post)
   end
 
   def destroy
     if @post.destroy
-      render json: { record: @post }
+      redirect_to posts_path
     else
-      render json: { record: @post.as_json(methods: :errors) }, status: :unprocessable_entity
+      redirect_to post_path(@post)
     end
   end
 
