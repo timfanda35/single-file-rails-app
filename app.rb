@@ -93,6 +93,32 @@ end
 
 class ApplicationView < ApplicationComponent; end
 
+class ConfirmDialog < ApplicationView
+  def view_template
+    dialog id: "turbo-confirm", class: "ts-modal" do
+      div class: "content" do
+        div class: "ts-content is-center-aligned is-padded" do
+          div class: "ts-header is-icon" do
+            span class: "ts-icon is-circle-exclamation-icon"
+
+            plain "Are you sure?"
+          end
+          p { "Are you sure?" }
+        end
+
+        div class: "ts-divider"
+
+        form(method: "dialog") do
+          div class: "ts-content is-tertiary ts-wrap is-end-aligned" do
+            button(class: "ts-button", value: "cancel") { "Cancel" }
+            button(class: "ts-button is-outlined", value: "confirm") { "Confirm" }
+          end
+        end
+      end
+    end
+  end
+end
+
 class ApplicationLayout < ApplicationComponent
   include Phlex::Rails::Layout
 
@@ -110,12 +136,37 @@ class ApplicationLayout < ApplicationComponent
         # use unsafe_raw instead of plain to avoid escape chat
         # specific the turbo version to 7, cause there error when access 8
         script(type: "module") {
-          unsafe_raw 'import hotwiredTurbo from "https://cdn.skypack.dev/@hotwired/turbo@7";'
+          unsafe_raw <<~JS
+            import hotwiredTurbo from "https://cdn.skypack.dev/@hotwired/turbo@7";
+
+            Turbo.setConfirmMethod((message, element) => {
+                let dialog = document.getElementById("turbo-confirm")
+                dialog.querySelector("p").textContent = message
+                dialog.showModal()
+
+                return new Promise((resolve, reject) => {
+                    dialog.addEventListener("close", () => {
+                        resolve(dialog.returnValue === "confirm")
+                    }, { once: true })
+                })
+            })
+          JS
         }
+
+        # Toast UI
+        # https://tocas-ui.com/5.0/zh-tw/index.html
+        stylesheet_link_tag "https://cdnjs.cloudflare.com/ajax/libs/tocas/5.0.1/tocas.min.css", "data-turbo-track": "reload"
+        javascript_include_tag "https://cdnjs.cloudflare.com/ajax/libs/tocas/5.0.1/tocas.min.js", "data-turbo-track": "reload"
       end
 
       body do
-        main(&block)
+        div class: "ts-content" do
+          div class: "ts-container" do
+            main(&block)
+
+            render ConfirmDialog.new
+          end
+        end
       end
     end
   end
@@ -128,11 +179,29 @@ class PostsIndexView < ApplicationView
   end
 
   def view_template
-    h1 { @title }
-    div { link_to "new", new_post_path }
-    div do
+    div class: "ts-grid is-middle-aligned" do
+      div class: "column is-fluid is-center-aligned" do
+        div(class: "ts-header is-huge is-heavy") { @title }
+      end
+    end
+
+    div class: "ts-divider is-section"
+
+    div class: "ts-grid is-end-aligned" do
+      div class: "column " do
+        link_to "new", new_post_path, class: "ts-button"
+      end
+    end
+
+    div class: "ts-wrap is-vertical" do
       @posts.each do |post|
-        li { link_to post.title, post_path(post) }
+        div class: "ts-header is-start-icon" do
+          link_to post_path(post) do
+            span class: "ts-icon is-file-lines-icon"
+
+            plain post.title
+          end
+        end
       end
     end
   end
@@ -147,7 +216,15 @@ class PostsFormView < ApplicationView
   end
 
   def view_template
-    h1 { @post.new_record? ? plain("New Post") : plain("Edit Post ##{@post.id}") }
+    div class: "ts-grid is-middle-aligned" do
+      div class: "column is-fluid is-center-aligned" do
+        div(class: "ts-header is-huge is-heavy") do
+          @post.new_record? ? plain("New Post") : plain("Edit Post ##{@post.id}")
+        end
+      end
+    end
+
+    div class: "ts-divider is-section"
 
     if @post.errors.any?
       div do
@@ -157,22 +234,58 @@ class PostsFormView < ApplicationView
       end
     end
 
-    div do
-      form_for @post do |f|
-        div {
-          f.label :title
-          f.text_field :title
-        }
+    div class: "ts-wrap is-vertical" do
+      div class: "ts-grid is-middle-aligned" do
+        div class: "column is-start-aligned" do
+          link_to "back", posts_path, class: "ts-button"
+        end
+      end
 
-        div {
-          f.label :content
-          f.text_area :content
-        }
+      if @post.errors.any?
+        div class: "ts-box" do
+          div(class: "ts-content") do
+            div(class: "ts-header is-negative") { "Errors" }
+            div(class: "ts-list is-unordered") do
+              @post.errors.full_messages.each { |full_message| div(class: "item ts-text is-negative") { full_message } }
+            end
+          end
 
-        div {
-          link_to "cancel", posts_path
-          f.submit
-        }
+          div class: "symbol" do
+            span class: "ts-icon is-circle-exclamation-icon"
+          end
+        end
+      end
+
+      div class: "ts-box" do
+        div(class: "ts-content") do
+          form_for @post do |f|
+            div(class: "ts-wrap is-vertical") {
+              div(class: "ts-control is-stacked") {
+                f.label :title, class: "label"
+
+                div(class: "content") {
+                  div(class: "ts-input") { f.text_field :title }
+                }
+              }
+
+              div(class: "ts-control is-stacked") {
+                f.label :content, class: "label"
+
+                div(class: "content") {
+                  div(class: "ts-input is-resizable") { f.text_area :content, rows: 20 }
+                }
+              }
+
+              div class: "ts-divider"
+
+              div class: "ts-grid is-middle-aligned" do
+                div class: "column is-fluid is-end-aligned" do
+                  f.submit class: "ts-button"
+                end
+              end
+            }
+          end
+        end
       end
     end
   end
@@ -184,27 +297,56 @@ class PostsShowView < ApplicationView
   end
 
   def view_template
-    h1 { @post.title }
-    div { plain @post.content }
-
-    if @post.errors.any?
-      div do
-        ul do
-          @post.errors.full_messages.each { li { plain _1 } }
-        end
+    div class: "ts-grid is-middle-aligned" do
+      div class: "column is-fluid is-center-aligned" do
+        div(class: "ts-header is-huge is-heavy") { @post.title }
       end
     end
 
-    div do
-      link_to "back", posts_path
+    div class: "ts-divider is-section"
 
-      link_to "edit", edit_post_path(@post)
+    div class: "ts-wrap is-vertical" do
+      div class: "ts-grid is-middle-aligned" do
+        div class: "column is-start-aligned" do
+          link_to "back", posts_path, class: "ts-button"
+        end
 
-      link_to "delete",
-              post_path(@post),
-              data: {
-                turbo_method:  :delete,
-                turbo_confirm: "Do you want to delete #{@post.title}?" }
+        div class: "column is-fluid is-end-aligned" do
+          div class: "ts-wrap" do
+            link_to edit_post_path(@post),
+                    class: "ts-button is-icon" do
+              span class: "ts-icon is-pen-to-square-icon"
+            end
+
+            link_to post_path(@post),
+                    class: "ts-button is-icon is-negative is-outlined",
+                    data:  {
+                      turbo_method:  :delete,
+                      turbo_confirm: "Do you want to delete #{@post.title}?" } do
+              span class: "ts-icon is-trash-icon"
+            end
+          end
+        end
+      end
+
+      if @post.errors.any?
+        div class: "ts-box" do
+          div(class: "ts-content") do
+            div(class: "ts-header is-negative") { "Errors" }
+            div(class: "ts-list is-unordered") do
+              @post.errors.full_messages.each { |full_message| div(class: "item ts-text is-negative") { full_message } }
+            end
+          end
+
+          div class: "symbol" do
+            span class: "ts-icon is-circle-exclamation-icon"
+          end
+        end
+      end
+
+      div class: "ts-box" do
+        div(class: "ts-content") { plain @post.content }
+      end
     end
   end
 end
