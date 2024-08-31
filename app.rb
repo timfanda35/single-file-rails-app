@@ -222,6 +222,12 @@ class ApplicationLayout < ApplicationComponent
                         element: this.element,
                         extensions: [
                             StarterKit.configure({
+                                blockquote: {
+                                    HTMLAttributes: { class: "ts-quote is-secondary" }
+                                },
+                                code: {
+                                    HTMLAttributes: { class: "ts-text is-code" }
+                                },
                                 codeBlock: {
                                     HTMLAttributes: { class: "ts-box ts-content" }
                                 }
