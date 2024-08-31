@@ -132,6 +132,24 @@ class ApplicationLayout < ApplicationComponent
         csp_meta_tag
         csrf_meta_tags
 
+        # Specify external dependencies to avoid the problem:
+        #   Can not convert <> to a Fragment (looks like multiple versions of prosemirror-model were loaded)
+        # https://github.com/ueberdosis/tiptap/discussions/2529
+        # https://esm.sh/#using-import-maps
+        script type: "importmap" do
+          unsafe_raw <<~PLAINTEXT
+            {
+                "imports": {
+                    "prosemirror-model": "https://esm.sh/prosemirror-model@1.22.3",
+                    "@tiptap/core": "https://esm.sh/@tiptap/core@2.6.6?external=prosemirror-model",
+                    "@tiptap/starter-kit": "https://esm.sh/@tiptap/starter-kit@2.6.6?external=prosemirror-model",
+                    "@tiptap/extension-highlight": "https://esm.sh/@tiptap/extension-highlight@2.6.6",
+                    "@tiptap/extension-typography": "https://esm.sh/@tiptap/extension-typography@2.6.6"
+                }
+            }
+          PLAINTEXT
+        end
+
         # https://turbo.hotwired.dev/handbook/installing#in-compiled-form
         # use unsafe_raw instead of plain to avoid escape chat
         # specific the turbo version to 7, cause there error when access 8
@@ -150,6 +168,97 @@ class ApplicationLayout < ApplicationComponent
                     }, { once: true })
                 })
             })
+
+            import { Application, Controller } from "https://cdn.skypack.dev/@hotwired/stimulus@3"
+            const application = Application.start()
+
+            // Configure Stimulus development experience
+            application.debug = false
+            window.Stimulus   = application
+
+            // Tiptap
+            // https://tiptap.dev/docs/editor/getting-started/install/cdn
+            import { Editor } from "@tiptap/core"
+            import StarterKit from "@tiptap/starter-kit"
+            import Highlight from "@tiptap/extension-highlight"
+            import Typography from "@tiptap/extension-typography"
+
+            // https://stimulus.hotwired.dev/reference/controllers#registering-controllers-manually
+            application.register("tiptap-editor", class extends Controller {
+                static values = { loaded: Boolean, name: "" }
+
+                connect() {
+                    this.initTipTapEditor()
+
+                    this.loadedValue = true
+                }
+
+                formField() {
+                    let field = document.querySelector(`input[name="${this.nameValue}"]`)
+                    if (!field) {
+                        field = document.createElement("input")
+                        field.setAttribute("type", "hidden")
+                        field.setAttribute("name", this.nameValue)
+                        this.element.append(field)
+                    }
+
+                    return field
+                }
+
+                fillFormField() {
+                    if (this.nameValue === "") {
+                        console.log("You must specific the filed name to tiptap editor")
+                        return
+                    }
+
+                    this.formField().value = this.element.editor.getHTML()
+                }
+
+                initTipTapEditor() {
+                    const content = this.element.innerHTML
+                    this.element.innerHTML = ""
+
+                    this.element.editor = new Editor({
+                        element: this.element,
+                        extensions: [
+                            StarterKit.configure({
+                                codeBlock: {
+                                    HTMLAttributes: { class: "ts-box ts-content" }
+                                }
+                            }),
+                            Highlight,
+                            Typography
+                        ],
+                        editorProps: {
+                            attributes: {
+                                 class: "ts-content"
+                            }
+                        },
+                        content: content
+                    })
+                }
+            })
+
+            // https://maxencemalbois.medium.com/migrating-from-trix-to-tiptap-in-a-rails-7-app-with-turbo-and-stimulus-js-97f253d13d0
+            application.register("tiptap-form", class extends Controller {
+                static outlets = [ "tiptap-editor" ]
+                static values = { loaded: Boolean }
+
+                connect() {
+                    this.element.setAttribute("data-action", "submit->tiptap-form#formSubmit")
+                }
+
+                formSubmit(event){
+                  event.preventDefault()
+                  event.stopPropagation()
+
+                  this.tiptapEditorOutlets.forEach((tiptapEditor) => {
+                      tiptapEditor.fillFormField()
+                  })
+
+                  Turbo.navigator.submitForm(this.element)
+                }
+            })
           JS
         }
 
@@ -157,6 +266,14 @@ class ApplicationLayout < ApplicationComponent
         # https://tocas-ui.com/5.0/zh-tw/index.html
         stylesheet_link_tag "https://cdnjs.cloudflare.com/ajax/libs/tocas/5.0.1/tocas.min.css", "data-turbo-track": "reload"
         javascript_include_tag "https://cdnjs.cloudflare.com/ajax/libs/tocas/5.0.1/tocas.min.js", "data-turbo-track": "reload"
+
+        style do
+          unsafe_raw <<~CSS
+            .tiptap:focus {
+                outline: none;
+            }
+          CSS
+        end
       end
 
       body do
@@ -209,6 +326,7 @@ end
 
 class PostsFormView < ApplicationView
   include Phlex::Rails::Helpers::FormFor
+  include Phlex::Rails::Helpers::FieldName
 
   # @param [ActiveRecord] post
   def initialize(post:)
@@ -225,14 +343,6 @@ class PostsFormView < ApplicationView
     end
 
     div class: "ts-divider is-section"
-
-    if @post.errors.any?
-      div do
-        ul do
-          @post.errors.full_messages.each { li { plain _1 } }
-        end
-      end
-    end
 
     div class: "ts-wrap is-vertical" do
       div class: "ts-grid is-middle-aligned" do
@@ -258,7 +368,7 @@ class PostsFormView < ApplicationView
 
       div class: "ts-box" do
         div(class: "ts-content") do
-          form_for @post do |f|
+          form_for @post, data: { controller: "tiptap-form", tiptap_form_tiptap_editor_outlet: '[data-controller="tiptap-editor"]' } do |f|
             div(class: "ts-wrap is-vertical") {
               div(class: "ts-control is-stacked") {
                 f.label :title, class: "label"
@@ -268,20 +378,19 @@ class PostsFormView < ApplicationView
                 }
               }
 
-              div(class: "ts-control is-stacked") {
-                f.label :content, class: "label"
-
-                div(class: "content") {
-                  div(class: "ts-input is-resizable") { f.text_area :content, rows: 20 }
-                }
-              }
+              div(class: "label") { Post.human_attribute_name(:content) }
+              div class: "ts-box" do
+                div class: "ts-content", data: { controller: "tiptap-editor", tiptap_editor_name_value: f.field_name(:content) } do
+                  @post.content&.html_safe
+                end
+              end
 
               div class: "ts-divider"
 
-              div class: "ts-grid is-middle-aligned" do
-                div class: "column is-fluid is-end-aligned" do
-                  f.submit class: "ts-button"
-                end
+              div class: "ts-wrap is-middle-aligned is-end-aligned" do
+                link_to "Cancel", :back, class: "ts-button is-outlined"
+
+                f.submit class: "ts-button"
               end
             }
           end
@@ -345,7 +454,7 @@ class PostsShowView < ApplicationView
       end
 
       div class: "ts-box" do
-        div(class: "ts-content") { plain @post.content }
+        div(class: "ts-content") { @post.content&.html_safe }
       end
     end
   end
